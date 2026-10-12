@@ -24,6 +24,7 @@ struct Normalize {
 struct Snapshot { snapshot: TopologySnapshot, now_ms: u64 }
 
 struct OwnedSocket { path: PathBuf, dev: u64, inode: u64, uid: u32 }
+fn allowed_peer(owner: u32, peer: u32) -> bool { peer == owner || peer == 0 }
 impl Drop for OwnedSocket {
     fn drop(&mut self) {
         if let Ok(metadata) = std::fs::symlink_metadata(&self.path) {
@@ -57,7 +58,10 @@ fn dispatch(path: &str, body: &[u8]) -> Result<Value> {
 }
 
 async fn handle(mut stream: UnixStream, uid: u32) -> Result<()> {
-    if stream.peer_cred()?.uid() != uid { return Err(anyhow!("foreign Unix peer")); }
+    // The root-owned GPTAdmin service already has privileged access to this
+    // private directory/socket. Other users remain outside the product edge.
+    let peer_uid = stream.peer_cred()?.uid();
+    if !allowed_peer(uid, peer_uid) { return Err(anyhow!("foreign Unix peer")); }
     let mut header = Vec::new();
     loop {
         if header.len() >= 8192 { return Err(anyhow!("headers too large")); }
@@ -150,6 +154,12 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn only_owner_and_privileged_local_product_can_use_private_socket() {
+        assert!(allowed_peer(1000,1000));
+        assert!(allowed_peer(1000,0));
+        assert!(!allowed_peer(1000,1001));
+    }
     #[test]
     fn stateless_call_keeps_ids_and_does_not_learn_other_call_topology() {
         let result = dispatch("/v1/normalize", br#"{"local_host_id":"a","known_hosts":["b"],"hosts":"b","request_id":"keep","origin_host":"a","hop_count":0}"#).unwrap();

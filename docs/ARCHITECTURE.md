@@ -8,6 +8,9 @@ process over a private Unix socket, not a process or stdio MCP for each client.
 `mesh-core-service --socket /absolute/private/directory/core.sock` requires an
 existing canonical directory with mode0700. It creates mode0600 socket, checks
 peer UID, refuses an existing path and removes only its own inode on SIGTERM/SIGINT.
+The owner UID and an existing privileged local root product process may use the
+private socket; other UIDs are rejected. Root already has filesystem authority
+over this directory. This adds no public endpoint, token, profile or tool grant.
 The service has eight active connections, three-second total request deadline,
 8KiB headers,128KiB input,1MiB output and one Tokio worker. Deployment must enforce
 finite RAM/CPU/tasks/storage externally; a healthy socket is not fleet acceptance.

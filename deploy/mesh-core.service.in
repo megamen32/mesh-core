@@ -1,0 +1,26 @@
+[Unit]
+Description=Shared Rust mesh routing core
+After=local-fs.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=@USER@
+Group=@GROUP@
+RuntimeDirectory=mesh-core-@USER@
+RuntimeDirectoryMode=0700
+UMask=0077
+ExecStart=@BINARY@ --socket /run/mesh-core-@USER@/core.sock
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=5
+CPUQuota=25%
+MemoryHigh=32M
+MemoryMax=64M
+MemorySwapMax=0
+TasksMax=16
+LimitNOFILE=64
+
+[Install]
+WantedBy=multi-user.target
