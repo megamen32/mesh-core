@@ -8,6 +8,7 @@ StartLimitBurst=3
 Type=simple
 User=@USER@
 Group=@GROUP@
+Slice=user-@UID@.slice
 RuntimeDirectory=mesh-core-@USER@
 RuntimeDirectoryMode=0700
 UMask=0077
