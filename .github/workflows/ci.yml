@@ -1,0 +1,40 @@
+name: Public source checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      CARGO_BUILD_JOBS: '1'
+      CARGO_INCREMENTAL: '0'
+      GOMAXPROCS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: '1.26.0'
+          cache: false
+      - name: Exact Rust compiler
+        run: rustup toolchain install 1.96.1 --profile minimal
+      - name: Rust source and private singleton
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: |
+          cargo +1.96.1 test --locked --all-features -j1
+          cargo +1.96.1 build --locked --all-features --bin mesh-core-service -j1
+          node tests/service-client.mjs "$PWD/target/debug/mesh-core-service"
+      - name: Go caller with real Rust executable
+        working-directory: bindings/go
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: MESH_CORE_TEST_BINARY="$GITHUB_WORKSPACE/target/debug/mesh-core-service" go test -p 1 -count=1 ./...

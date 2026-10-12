@@ -1,0 +1,8 @@
+{
+  "name": "@megamen32/mesh-core",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "exports": { ".": "./bindings/node/client.mjs" },
+  "files": ["bindings/node", "LICENSE", "README.md"]
+}

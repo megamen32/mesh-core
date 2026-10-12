@@ -1,0 +1,7 @@
+/target/
+/trash/
+/.tmp/
+/.agents/
+/.planning/
+
+/AGENTS.md
