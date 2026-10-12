@@ -1,0 +1,104 @@
+name: Native singleton release
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 3
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            platform: linux-x86_64
+          - runner: macos-15-intel
+            platform: macos-x86_64
+          - runner: macos-14
+            platform: macos-aarch64
+    env:
+      CARGO_BUILD_JOBS: '1'
+      CARGO_INCREMENTAL: '0'
+      TMPDIR: ${{ runner.temp }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Exact compiler
+        run: rustup toolchain install 1.96.1 --profile minimal
+      - name: Compile and exercise the native singleton
+        run: |
+          cargo +1.96.1 test --locked --features service -j1
+          cargo +1.96.1 build --release --locked --features service --bin mesh-core-service -j1
+          node tests/service-client.mjs "$PWD/target/release/mesh-core-service"
+          python3 tests/package-service.test.py
+      - name: Package only executable and source manifest
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          PLATFORM: ${{ matrix.platform }}
+        run: python3 scripts/package-service.py --binary target/release/mesh-core-service --platform "$PLATFORM" --source "$SOURCE_SHA" --output dist
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: singleton-${{ matrix.platform }}
+          path: dist/mesh-core-*
+          if-no-files-found: error
+          retention-days: 7
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: singleton-*
+          merge-multiple: true
+          path: dist
+      - name: Verify and publish all three native assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.sha }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cd dist
+          sha256sum -c ./*.sha256
+          test "$(find . -maxdepth 1 -name '*.tar.gz' | wc -l)" -eq 3
+          cat ./*.sha256 > SHA256SUMS
+          printf 'Native singleton built and exercised on all three target platforms. Source: %s. Fleet configuration and credentials are excluded. Installation and fleet failover require separate live acceptance.\n' "$SOURCE_SHA" > release-notes.txt
+          python3 - <<'PYRELEASE'
+          import glob, json, os, re, subprocess
+          source = os.environ['SOURCE_SHA']
+          repo = os.environ['GH_REPO']
+          assert re.fullmatch('[0-9a-f]{40}', source)
+          tag = 'v0.1.0-' + source[:12]
+          route = f'repos/{repo}/git/ref/tags/{tag}'
+          def api(path):
+              return json.loads(subprocess.check_output(['gh', 'api', path], timeout=10))
+          matches = api(f'repos/{repo}/git/matching-refs/tags/{tag}')
+          assert isinstance(matches, list) and len(matches) <= 100
+          exact = [ref for ref in matches if ref.get('ref') == 'refs/tags/' + tag]
+          assert len(exact) <= 1
+          if not exact:
+              subprocess.run(['gh', 'api', '--method', 'POST', f'repos/{repo}/git/refs',
+                              '-f', 'ref=refs/tags/' + tag, '-f', 'sha=' + source],
+                             check=True, capture_output=True, timeout=10)
+          def verify():
+              obj = api(route)['object']
+              for _ in range(4):
+                  if obj['type'] == 'commit':
+                      assert obj['sha'] == source, 'existing release tag source differs'
+                      return
+                  assert obj['type'] == 'tag' and re.fullmatch('[0-9a-f]{40}', obj['sha'])
+                  obj = api(f"repos/{repo}/git/tags/{obj['sha']}")['object']
+              raise RuntimeError('release tag chain outside bound')
+          verify()
+          verify()  # Fresh exact source read immediately before publishing assets.
+          subprocess.run(['gh', 'release', 'create', tag, '--target', source,
+                          '--title', 'Native mesh-core ' + source[:12],
+                          '--notes-file', 'release-notes.txt',
+                          *sorted(glob.glob('mesh-core-*.tar.gz')), 'SHA256SUMS'],
+                         check=True, timeout=90)
+          PYRELEASE
