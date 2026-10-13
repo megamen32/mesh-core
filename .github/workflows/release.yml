@@ -21,7 +21,6 @@ jobs:
     env:
       CARGO_BUILD_JOBS: '1'
       CARGO_INCREMENTAL: '0'
-      TMPDIR: ${{ runner.temp }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -29,6 +28,8 @@ jobs:
       - name: Exact compiler
         run: rustup toolchain install 1.96.1 --profile minimal
       - name: Compile and exercise the native singleton
+        env:
+          TMPDIR: ${{ runner.temp }}
         run: |
           cargo +1.96.1 test --locked --features service -j1
           cargo +1.96.1 build --release --locked --features service --bin mesh-core-service -j1
