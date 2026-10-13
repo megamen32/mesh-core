@@ -3,6 +3,7 @@
 pub mod topology;
 pub mod topology_cache;
 pub mod request;
+pub mod placement;
 
 #[cfg(feature = "transport")]
 pub mod transport;
